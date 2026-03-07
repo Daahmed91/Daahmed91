@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0a0a0f;
+  --foreground: #ededed;
+  --surface: #111118;
+  --surface-2: #1a1a24;
+  --border: #2a2a38;
+  --brand-purple: #7c3aed;
+  --brand-purple-light: #a78bfa;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .surface { background: var(--surface); }
+  .surface-2 { background: var(--surface-2); }
+  .border-subtle { border-color: var(--border); }
+}
+
+@layer components {
+  .input-base {
+    @apply w-full px-3 py-2.5 rounded-xl border border-[#2a2a38] bg-[#111118] text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-purple-500 transition-colors;
+  }
+}
