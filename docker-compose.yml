@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Required
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # Image generation (add the ones you have keys for)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - STABILITY_API_KEY=${STABILITY_API_KEY:-}
+      - FAL_KEY=${FAL_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      # Defaults
+      - IMAGE_PROVIDER=${IMAGE_PROVIDER:-openai}
+      - IMAGE_MODEL=${IMAGE_MODEL:-dall-e-3}
+      # CORS: must include the public URL of your frontend
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+    volumes:
+      # Persist brand data between restarts
+      - brand_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Must point to the publicly reachable backend URL
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  brand_data:
