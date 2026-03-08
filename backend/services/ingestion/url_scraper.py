@@ -12,10 +12,10 @@ from models.brand import BrandProfile
 from services.brand_store import save_brand
 
 
-async def scrape_brand_from_url(url: str) -> BrandProfile:
+async def scrape_brand_from_url(url: str, anthropic_key: str = "") -> BrandProfile:
     """Scrape a URL and extract brand profile using Claude."""
     page_data = await _scrape_page(url)
-    return await _extract_brand_from_page_data(page_data, url)
+    return await _extract_brand_from_page_data(page_data, url, anthropic_key)
 
 
 async def _scrape_page(url: str) -> dict:
@@ -100,9 +100,10 @@ async def _scrape_page(url: str) -> dict:
     }
 
 
-async def _extract_brand_from_page_data(page_data: dict, url: str) -> BrandProfile:
+async def _extract_brand_from_page_data(page_data: dict, url: str, anthropic_key: str = "") -> BrandProfile:
     """Use Claude to interpret scraped page data as a brand profile."""
-    client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    client = anthropic.AsyncAnthropic(api_key=key)
 
     prompt = f"""You are a brand expert. Analyze this website data scraped from {url} and extract a brand profile.
 

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import SettingsModal from "@/components/settings/SettingsModal";
 
 export const metadata: Metadata = {
   title: "BrandMind — AI Designer",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <SettingsModal />
+        {children}
+      </body>
     </html>
   );
 }

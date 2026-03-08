@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import base64
 from abc import ABC, abstractmethod
-from typing import Literal
 from models.brand import BrandProfile
 
 DEFAULT_PROVIDER = os.getenv("IMAGE_PROVIDER", "openai")
@@ -58,16 +57,16 @@ def build_brand_prompt(user_description: str, brand: BrandProfile, style: str = 
 
 class ImageProvider(ABC):
     @abstractmethod
-    async def generate(self, prompt: str, model: str, size: str = "1024x1024") -> str:
+    async def generate(self, prompt: str, model: str, size: str = "1024x1024", api_key: str = "") -> str:
         """Returns a URL or data URI of the generated image."""
         ...
 
 
 class OpenAIProvider(ImageProvider):
-    async def generate(self, prompt: str, model: str = "dall-e-3", size: str = "1024x1024") -> str:
+    async def generate(self, prompt: str, model: str = "dall-e-3", size: str = "1024x1024", api_key: str = "") -> str:
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        # DALL-E 3 supports 1024x1024, 1792x1024, 1024x1792
+        key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        client = AsyncOpenAI(api_key=key)
         valid_sizes = {"dall-e-3": ["1024x1024", "1792x1024", "1024x1792"],
                        "dall-e-2": ["256x256", "512x512", "1024x1024"]}
         allowed = valid_sizes.get(model, ["1024x1024"])
@@ -85,12 +84,10 @@ class OpenAIProvider(ImageProvider):
 
 
 class StabilityProvider(ImageProvider):
-    async def generate(self, prompt: str, model: str = "stable-image-ultra", size: str = "1024x1024") -> str:
+    async def generate(self, prompt: str, model: str = "stable-image-ultra", size: str = "1024x1024", api_key: str = "") -> str:
         import httpx
-        api_key = os.environ["STABILITY_API_KEY"]
-        width, height = map(int, size.split("x"))
-        # Stability AI REST API
-        url = f"https://api.stability.ai/v2beta/stable-image/generate/core"
+        key = api_key or os.environ.get("STABILITY_API_KEY", "")
+        url = "https://api.stability.ai/v2beta/stable-image/generate/core"
         if "ultra" in model:
             url = "https://api.stability.ai/v2beta/stable-image/generate/ultra"
         elif "sd3" in model or "stable-diffusion-3" in model:
@@ -98,19 +95,21 @@ class StabilityProvider(ImageProvider):
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 url,
-                headers={"authorization": f"Bearer {api_key}", "accept": "application/json"},
+                headers={"authorization": f"Bearer {key}", "accept": "application/json"},
                 data={"prompt": prompt, "output_format": "png"},
             )
             response.raise_for_status()
             data = response.json()
-            # Returns base64 image
             img_b64 = data.get("image", "")
             return f"data:image/png;base64,{img_b64}"
 
 
 class FalProvider(ImageProvider):
-    async def generate(self, prompt: str, model: str = "fal-ai/flux-pro/v1.1-ultra", size: str = "1024x1024") -> str:
+    async def generate(self, prompt: str, model: str = "fal-ai/flux-pro/v1.1-ultra", size: str = "1024x1024", api_key: str = "") -> str:
         import fal_client
+        key = api_key or os.environ.get("FAL_KEY", "")
+        if key:
+            os.environ["FAL_KEY"] = key
         width, height = map(int, size.split("x"))
         result = await fal_client.run_async(
             model,
@@ -127,10 +126,11 @@ class FalProvider(ImageProvider):
 
 
 class GoogleImagenProvider(ImageProvider):
-    async def generate(self, prompt: str, model: str = "imagen-3.0-generate-002", size: str = "1024x1024") -> str:
+    async def generate(self, prompt: str, model: str = "imagen-3.0-generate-002", size: str = "1024x1024", api_key: str = "") -> str:
         from google import genai
         from google.genai import types as genai_types
-        client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+        key = api_key or os.environ.get("GOOGLE_API_KEY", "")
+        client = genai.Client(api_key=key)
         response = await client.aio.models.generate_images(
             model=model,
             prompt=prompt,
@@ -156,20 +156,31 @@ async def generate_image(
     size: str = "1024x1024",
     provider: str | None = None,
     model: str | None = None,
+    keys: dict | None = None,
 ) -> dict:
     """
     Generate a brand-aware image.
     Returns {"url": str, "provider": str, "model": str, "prompt": str}
     """
-    provider = provider or DEFAULT_PROVIDER
-    model = model or DEFAULT_MODEL
+    keys = keys or {}
+    provider = provider or keys.get("image_provider") or DEFAULT_PROVIDER
+    model = model or keys.get("image_model") or DEFAULT_MODEL
 
     if provider not in _PROVIDERS:
         raise ValueError(f"Unknown provider '{provider}'. Choose from: {list(_PROVIDERS)}")
 
+    # Map provider name to its API key from the keys dict
+    provider_key_map = {
+        "openai": keys.get("openai", ""),
+        "stability": keys.get("stability", ""),
+        "fal": keys.get("fal", ""),
+        "google": keys.get("google", ""),
+    }
+    api_key = provider_key_map.get(provider, "")
+
     prompt = build_brand_prompt(description, brand, style)
     adapter = _PROVIDERS[provider]
-    url = await adapter.generate(prompt, model, size)
+    url = await adapter.generate(prompt, model, size, api_key)
     return {"url": url, "provider": provider, "model": model, "prompt": prompt}
 
 

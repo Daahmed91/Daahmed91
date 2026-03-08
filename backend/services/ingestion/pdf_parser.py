@@ -21,13 +21,14 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     return "\n\n".join(pages)
 
 
-async def parse_pdf_brand(pdf_bytes: bytes, brand_name: str = "") -> BrandProfile:
+async def parse_pdf_brand(pdf_bytes: bytes, brand_name: str = "", anthropic_key: str = "") -> BrandProfile:
     """Extract a BrandProfile from PDF bytes using Claude."""
     text = extract_text_from_pdf(pdf_bytes)
     # Truncate to avoid token limits (keep most relevant content)
     text_excerpt = text[:12000]
 
-    client = anthropic.AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    key = anthropic_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    client = anthropic.AsyncAnthropic(api_key=key)
 
     prompt = f"""You are a brand expert. Analyze this brand guidelines document and extract structured brand information.
 

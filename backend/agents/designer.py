@@ -4,7 +4,6 @@ Claude claude-sonnet-4-6 with 6 tools that generate on-brand design outputs.
 """
 from __future__ import annotations
 import json
-import os
 from typing import AsyncGenerator
 
 import anthropic
@@ -12,8 +11,6 @@ from models.brand import BrandProfile
 from services import brand_store
 from services.generators.image_generator import generate_image
 from services.generators.token_generator import generate_tokens
-
-client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
 SYSTEM_PROMPT = """You are BrandMind — a world-class AI designer with mastery of:
 - Digital design principles: typography, color theory, visual hierarchy, layout, whitespace
@@ -169,10 +166,11 @@ async def handle_tool_call(
     tool_name: str,
     tool_input: dict,
     brand: BrandProfile | None,
-    image_provider: str | None,
-    image_model: str | None,
+    keys: dict,
 ) -> tuple[str, dict]:
     """Execute a tool call and return (result_text, metadata)."""
+    client = anthropic.AsyncAnthropic(api_key=keys["anthropic"])
+    claude_model = keys["claude_model"]
 
     if tool_name == "get_brand_profile":
         brand_id = tool_input.get("brand_id")
@@ -188,12 +186,12 @@ async def handle_tool_call(
         brand_id = tool_input.get("brand_id")
         updates = tool_input.get("updates", {})
         if brand_id:
-            updated = brand_store.update_brand(brand_id, updates)
+            brand_store.update_brand(brand_id, updates)
         elif brand:
-            updated = brand_store.update_brand(brand.id, updates)
+            brand_store.update_brand(brand.id, updates)
         else:
             return "No brand to update.", {}
-        return f"Brand profile updated successfully.", {"type": "brand_updated"}
+        return "Brand profile updated successfully.", {"type": "brand_updated"}
 
     elif tool_name == "generate_design_code":
         component_type = tool_input.get("component_type", "component")
@@ -205,7 +203,7 @@ async def handle_tool_call(
             brand_context = brand.to_designer_context()
 
         code = await _generate_code_with_claude(
-            component_type, requirements, framework, brand_context
+            component_type, requirements, framework, brand_context, client, claude_model
         )
         return code, {"type": "code", "framework": framework, "component": component_type}
 
@@ -213,8 +211,8 @@ async def handle_tool_call(
         description = tool_input.get("description", "")
         style = tool_input.get("style", "")
         size = tool_input.get("size", "1024x1024")
-        provider = tool_input.get("provider") or image_provider
-        model = tool_input.get("model") or image_model
+        provider = tool_input.get("provider") or keys["image_provider"]
+        model = tool_input.get("model") or keys["image_model"]
 
         if not brand:
             brand = brand_store.get_default_brand() or BrandProfile()
@@ -226,6 +224,7 @@ async def handle_tool_call(
             size=size,
             provider=provider,
             model=model,
+            keys=keys,
         )
         return json.dumps(result), {"type": "image", **result}
 
@@ -244,7 +243,7 @@ async def handle_tool_call(
 
         brand_context = brand.to_designer_context() if brand else ""
         copy_result = await _generate_copy_with_claude(
-            content_type, context, variations, tone_adjustment, brand_context
+            content_type, context, variations, tone_adjustment, brand_context, client, claude_model
         )
         return copy_result, {"type": "copy", "content_type": content_type}
 
@@ -256,6 +255,8 @@ async def _generate_code_with_claude(
     requirements: str,
     framework: str,
     brand_context: str,
+    client: anthropic.AsyncAnthropic,
+    model: str,
 ) -> str:
     framework_instructions = {
         "react-tailwind": "React functional component using Tailwind CSS classes. Use exact brand colors as Tailwind arbitrary values (e.g. bg-[#FF5733]). Export as default.",
@@ -281,7 +282,7 @@ INSTRUCTIONS:
 - Return ONLY the complete code, no explanation before or after"""
 
     response = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model=model,
         max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -294,6 +295,8 @@ async def _generate_copy_with_claude(
     variations: int,
     tone_adjustment: str,
     brand_context: str,
+    client: anthropic.AsyncAnthropic,
+    model: str,
 ) -> str:
     tone_note = f"\nTone adjustment: {tone_adjustment}" if tone_adjustment else ""
 
@@ -316,7 +319,7 @@ Requirements:
 Return ONLY the copy variations, no preamble."""
 
     response = await client.messages.create(
-        model="claude-sonnet-4-6",
+        model=model,
         max_tokens=1500,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -326,13 +329,28 @@ Return ONLY the copy variations, no preamble."""
 async def run_designer_agent(
     messages: list[dict],
     brand_id: str | None = None,
-    image_provider: str | None = None,
-    image_model: str | None = None,
+    keys: dict | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Run the BrandMind agent with streaming.
     Yields server-sent event dicts.
     """
+    if keys is None:
+        import os
+        keys = {
+            "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
+            "claude_model": "claude-sonnet-4-6",
+            "openai": os.environ.get("OPENAI_API_KEY", ""),
+            "stability": os.environ.get("STABILITY_API_KEY", ""),
+            "fal": os.environ.get("FAL_KEY", ""),
+            "google": os.environ.get("GOOGLE_API_KEY", ""),
+            "image_provider": os.environ.get("IMAGE_PROVIDER", "openai"),
+            "image_model": os.environ.get("IMAGE_MODEL", "dall-e-3"),
+        }
+
+    client = anthropic.AsyncAnthropic(api_key=keys["anthropic"])
+    claude_model = keys["claude_model"]
+
     brand = None
     if brand_id:
         brand = brand_store.get_brand(brand_id)
@@ -343,7 +361,7 @@ async def run_designer_agent(
 
     while True:
         async with client.messages.stream(
-            model="claude-sonnet-4-6",
+            model=claude_model,
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
@@ -392,7 +410,7 @@ async def run_designer_agent(
                     yield {"type": "tool_start", "tool": tc["name"], "input": tool_input}
 
                     result_text, metadata = await handle_tool_call(
-                        tc["name"], tool_input, brand, image_provider, image_model
+                        tc["name"], tool_input, brand, keys
                     )
 
                     yield {"type": "tool_result", "tool": tc["name"],

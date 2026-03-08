@@ -1,9 +1,10 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, File, UploadFile, HTTPException, Form, Request
 from fastapi.responses import JSONResponse
 from models.brand import BrandProfile
 from services.ingestion.form_processor import process_form
 from services.ingestion.pdf_parser import parse_pdf_brand
 from services.ingestion.url_scraper import scrape_brand_from_url
+from dependencies import get_api_keys
 
 router = APIRouter(tags=["ingest"])
 
@@ -20,30 +21,33 @@ async def ingest_form(data: dict):
 
 @router.post("/ingest/pdf")
 async def ingest_pdf(
+    request: Request,
     file: UploadFile = File(...),
     brand_name: str = Form(default=""),
 ):
     """Extract brand profile from an uploaded PDF."""
     if not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
+    keys = get_api_keys(request)
     try:
         pdf_bytes = await file.read()
-        profile = await parse_pdf_brand(pdf_bytes, brand_name)
+        profile = await parse_pdf_brand(pdf_bytes, brand_name, anthropic_key=keys["anthropic"])
         return profile.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF extraction failed: {str(e)}")
 
 
 @router.post("/ingest/url")
-async def ingest_url(payload: dict):
+async def ingest_url(request: Request, payload: dict):
     """Scrape a website and extract brand profile."""
     url = payload.get("url", "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
+    keys = get_api_keys(request)
     try:
-        profile = await scrape_brand_from_url(url)
+        profile = await scrape_brand_from_url(url, anthropic_key=keys["anthropic"])
         return profile.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"URL scraping failed: {str(e)}")
